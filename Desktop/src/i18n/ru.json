@@ -1,0 +1,48 @@
+{
+    "common": {
+        "search": "Поиск",
+        "settings": "Настройки",
+        "contacts": "Контакты",
+        "my_qr": "Мой QR-код",
+        "version": "NeoChat Desktop v0.1.0",
+        "close": "Закрыть",
+        "save": "Сохранить",
+        "cancel": "Отмена",
+        "back": "Назад"
+    },
+    "sidebar": {
+        "no_chats": "Нет чатов",
+        "new_chat": "Новый чат"
+    },
+    "new_chat": {
+        "title": "Новая беседа",
+        "private": "Личный",
+        "group": "Группа",
+        "pubkey_label": "Публичный ключ / Адрес",
+        "pubkey_placeholder": "Введите код или вставьте ключ...",
+        "group_name_label": "Название группы",
+        "group_name_placeholder": "Моя супер группа",
+        "contact_select_label": "Выбрать контакт",
+        "group_contact_select_label": "Выберите участников",
+        "start_chat": "Начать чат",
+        "create_group": "Создать группу",
+        "no_contacts": "Контакты не найдены"
+    },
+    "settings": {
+        "title": "Настройки",
+        "account": "Аккаунт",
+        "appearance": "Внешний вид",
+        "privacy": "Приватность",
+        "language": "Язык",
+        "username": "Имя пользователя",
+        "update_profile": "Обновить профиль",
+        "select_language": "Выберите язык",
+        "scan_to_add": "Отсканируйте, чтобы добавить в контакты"
+    },
+    "onboarding": {
+        "welcome": "Добро пожаловать в NeoChat",
+        "subtitle": "Безопасное и анонимное общение.",
+        "username_label": "Выберите имя пользователя",
+        "start": "Начать"
+    }
+}

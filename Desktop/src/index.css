@@ -1,0 +1,241 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+/* ==================== CSS VARIABLES ==================== */
+:root {
+  --color-bg-main: #0F1117;
+  --color-bg-card: #16181F;
+  --color-accent: #5E9FFF;
+  --color-neon: #00D4FF;
+  
+  --color-text-main: #E8EEF7;
+  --color-text-secondary: #A0AEC0;
+  
+  --color-msg-me: #2B5278;
+  --color-msg-other: #1E293B;
+  
+  --color-success: #34C759;
+  --color-danger: #FF3B30;
+  
+  --font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-chat: 20px;
+}
+
+/* ==================== RESET & BASE ==================== */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+}
+
+body {
+  font-family: var(--font-family);
+  background-color: var(--color-bg-main) !important;
+  color: var(--color-text-main);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  line-height: 1.5;
+  overflow: hidden;
+  height: 100vh;
+  width: 100vw;
+  margin: 0;
+  padding: 0;
+}
+
+#root {
+  width: 100%;
+  height: 100%;
+  background-color: var(--color-bg-main);
+  overflow: hidden;
+}
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+  border: none;
+  background: none;
+  outline: none;
+}
+
+button:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+a {
+  color: var(--color-accent);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+input, textarea {
+  font-family: inherit;
+  color: var(--color-text-main);
+}
+
+/* ==================== SCROLLBAR ==================== */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #2D3748;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #4A5568;
+}
+
+/* Firefox scrollbar */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #2D3748 transparent;
+}
+
+/* ==================== UTILITY CLASSES ==================== */
+
+/* Layout */
+.flex { display: flex !important; }
+.flex-1 { flex: 1 !important; }
+.flex-col { flex-direction: column !important; }
+.items-center { align-items: center !important; }
+.items-start { align-items: flex-start !important; }
+.items-end { align-items: flex-end !important; }
+.justify-center { justify-content: center !important; }
+.justify-between { justify-content: space-between !important; }
+.justify-end { justify-content: flex-end !important; }
+
+/* Spacing */
+.gap-1 { gap: 0.25rem !important; }
+.gap-2 { gap: 0.5rem !important; }
+.gap-4 { gap: 1rem !important; }
+.p-1 { padding: 0.25rem !important; }
+.p-2 { padding: 0.5rem !important; }
+.p-4 { padding: 1rem !important; }
+.m-0 { margin: 0 !important; }
+.ml-1 { margin-left: 0.25rem !important; }
+.mt-1 { margin-top: 0.25rem !important; }
+.mb-1 { margin-bottom: 0.25rem !important; }
+.mb-2 { margin-bottom: 0.5rem !important; }
+
+/* Typography */
+.text-xs { font-size: 0.75rem !important; }
+.text-sm { font-size: 0.875rem !important; }
+.text-base { font-size: 1rem !important; }
+.text-lg { font-size: 1.125rem !important; }
+.text-xl { font-size: 1.25rem !important; }
+.text-2xl { font-size: 1.5rem !important; }
+.font-normal { font-weight: 400 !important; }
+.font-medium { font-weight: 500 !important; }
+.font-semibold { font-weight: 600 !important; }
+.font-bold { font-weight: 700 !important; }
+
+/* Colors */
+.text-main { color: var(--color-text-main) !important; }
+.text-secondary { color: var(--color-text-secondary) !important; }
+.text-danger { color: var(--color-danger) !important; }
+.text-white { color: white !important; }
+.bg-main { background-color: var(--color-bg-main) !important; }
+.bg-card { background-color: var(--color-bg-card) !important; }
+.bg-gray-700 { background-color: #4A5568 !important; }
+.bg-black\/20 { background-color: rgba(0, 0, 0, 0.2) !important; }
+.bg-black\/50 { background-color: rgba(0, 0, 0, 0.5) !important; }
+
+/* Sizing */
+.w-full { width: 100% !important; }
+.h-full { height: 100% !important; }
+.w-16 { width: 4rem !important; }
+.h-16 { height: 4rem !important; }
+
+/* Border radius */
+.rounded { border-radius: var(--radius-md) !important; }
+.rounded-lg { border-radius: var(--radius-lg) !important; }
+.rounded-full { border-radius: 9999px !important; }
+
+/* Other */
+.select-all { user-select: all !important; }
+.font-mono { font-family: 'Courier New', Consolas, monospace !important; }
+.cursor-pointer { cursor: pointer !important; }
+.relative { position: relative !important; }
+.absolute { position: absolute !important; }
+.bottom-0 { bottom: 0 !important; }
+.right-0 { right: 0 !important; }
+.left-0 { left: 0 !important; }
+.z-10 { z-index: 10 !important; }
+.overflow-hidden { overflow: hidden !important; }
+
+/* Borders */
+.border { border-width: 1px !important; }
+.border-danger\/20 { border-color: rgba(255, 59, 48, 0.2) !important; }
+
+/* Hover states */
+.hover\:bg-danger\/10:hover { 
+  background-color: rgba(255, 59, 48, 0.1) !important; 
+}
+.hover\:text-white:hover { 
+  color: white !important; 
+}
+
+/* Responsive */
+.md\:hidden {
+  display: block !important;
+}
+
+@media (min-width: 768px) {
+  .md\:hidden {
+    display: none !important;
+  }
+}
+
+/* ==================== CUSTOM COMPONENTS ==================== */
+
+.glass-panel {
+  background: rgba(22, 24, 31, 0.8);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.btn-primary {
+  background-color: var(--color-accent);
+  color: white;
+  padding: 0.5rem 1rem;
+  border-radius: var(--radius-md);
+  transition: all 0.2s ease;
+  cursor: pointer;
+}
+
+.btn-primary:hover {
+  filter: brightness(1.1);
+  transform: translateY(-1px);
+}
+
+.btn-ghost {
+  color: var(--color-text-secondary);
+  padding: 0.5rem;
+  border-radius: var(--radius-sm);
+  transition: all 0.2s ease;
+  cursor: pointer;
+}
+
+.btn-ghost:hover {
+  background-color: rgba(255, 255, 255, 0.05);
+  color: var(--color-text-main);
+}

@@ -1,0 +1,6 @@
+[workspace]
+members = [
+    "crates/neochat-core",
+    "Desktop/src-tauri",
+]
+resolver = "2"

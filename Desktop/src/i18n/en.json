@@ -1,0 +1,48 @@
+{
+    "common": {
+        "search": "Search",
+        "settings": "Settings",
+        "contacts": "Contacts",
+        "my_qr": "My QR Code",
+        "version": "NeoChat Desktop v0.1.0",
+        "close": "Close",
+        "save": "Save",
+        "cancel": "Cancel",
+        "back": "Back"
+    },
+    "sidebar": {
+        "no_chats": "No chats yet",
+        "new_chat": "New Conversation"
+    },
+    "new_chat": {
+        "title": "New Conversation",
+        "private": "Private",
+        "group": "Group",
+        "pubkey_label": "Public Key / Address",
+        "pubkey_placeholder": "Enter 12-digit code or paste key...",
+        "group_name_label": "Group Name",
+        "group_name_placeholder": "My Awesome Group",
+        "contact_select_label": "Select Contact",
+        "group_contact_select_label": "Select Participants",
+        "start_chat": "Start Chat",
+        "create_group": "Create Group",
+        "no_contacts": "No contacts found"
+    },
+    "settings": {
+        "title": "Settings",
+        "account": "Account",
+        "appearance": "Appearance",
+        "privacy": "Privacy",
+        "language": "Language",
+        "username": "Username",
+        "update_profile": "Update Profile",
+        "select_language": "Select Language",
+        "scan_to_add": "Scan to add contact"
+    },
+    "onboarding": {
+        "welcome": "Welcome to NeoChat",
+        "subtitle": "Secure, private, and unstoppable communication.",
+        "username_label": "Choose your username",
+        "start": "Get Started"
+    }
+}

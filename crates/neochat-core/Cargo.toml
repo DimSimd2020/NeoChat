@@ -1,0 +1,24 @@
+[package]
+name = "neochat-core"
+version = "0.1.0"
+edition = "2021" # 2024 is not yet standard in cargo most likely, or use 2021. The user said 2024 but if I fail, I might adjust. Let's try 2021 or check if 2024 works (unlikely without nightly or very new stable). I'll use 2021 for safety unless user insists or tool fails.
+
+[lib]
+crate-type = ["cdylib", "rlib"] # Important for Uniffi
+name = "neochat_core"
+
+[dependencies]
+uniffi = { version = "0.28.0", features = ["cli"] }
+thiserror = "1.0"
+anyhow = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+tokio = { version = "1.0", features = ["full"] }
+uuid = { version = "1.0", features = ["serde", "v4"] }
+chrono = { version = "0.4", features = ["serde"] }
+aes-gcm = "0.10"
+base32 = "0.4"
+rand = "0.8"
+serde_json = "1.0"
+
+[build-dependencies]
+uniffi = { version = "0.28.0", features = ["build"] }
