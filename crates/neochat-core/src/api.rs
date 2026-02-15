@@ -1,9 +1,10 @@
 
 use crate::models::{
     Chat, ChatLastMessage, ChatType, Contact, CoreError, Message, MessageStatus, NetworkStatus,
-    TransportMode, User, UserStatus,
+    TransportMode, User, UserStatus, SmsEnvelope,
 };
 use crate::transport::discovery::{DiscoveryConfig, PeerDiscovery};
+use crate::crypto::{IdentityKeys, PeerIdentity, encrypt_for_peer, decrypt_from_peer};
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -19,13 +20,17 @@ use std::fs;
 use std::path::Path;
 use serde::{Deserialize, Serialize};
 
-/// Internal struct to serialize all app state at once
+/// Internal struct to serialize all app state at once (encrypted on disk)
 #[derive(Serialize, Deserialize)]
 struct StorageData {
     user: User,
     chats: HashMap<String, Chat>,
     messages: HashMap<String, Vec<Message>>,
     contacts: HashMap<String, Contact>,
+    // Store keys as hex/bytes wrapper or specific struct
+    identity_priv: Vec<u8>, // Ed25519 Private Key Bytes (32)
+    encryption_priv: Vec<u8>, // X25519 Private Key Bytes (32)
+    outgoing_sms: Vec<SmsEnvelope>,
 }
 
 #[derive(uniffi::Object)]
@@ -34,9 +39,11 @@ pub struct NeoChatCore {
     messages: Mutex<HashMap<String, Vec<Message>>>,
     contacts: Mutex<HashMap<String, Contact>>,
     my_profile: Mutex<User>,
+    identity_keys: Mutex<IdentityKeys>, // In-memory keys
+    outgoing_sms: Mutex<Vec<SmsEnvelope>>,
     network_status: Mutex<NetworkStatus>,
     pub storage_path: String,
-    pub encryption_key: [u8; 32],
+    pub encryption_key: [u8; 32], // Local database key
     discovery: PeerDiscovery,
 }
 
@@ -66,11 +73,22 @@ impl NeoChatCore {
 
         if Path::new(&storage_path_str).exists() {
             if let Ok(loaded) = Self::load_from_disk(&storage_path_str, &key) {
+                // Reconstruct IdentityKeys
+                let signing = ed25519_dalek::SigningKey::from_bytes(&loaded.identity_priv.try_into().unwrap());
+                let encryption = x25519_dalek::StaticSecret::from(<[u8; 32]>::try_from(loaded.encryption_priv).unwrap());
+                
+                let identity = IdentityKeys {
+                    signing_key: signing,
+                    encryption_key: encryption,
+                };
+
                 return Ok(Arc::new(Self {
                     chats: Mutex::new(loaded.chats),
                     messages: Mutex::new(loaded.messages),
                     contacts: Mutex::new(loaded.contacts),
                     my_profile: Mutex::new(loaded.user),
+                    identity_keys: Mutex::new(identity),
+                    outgoing_sms: Mutex::new(loaded.outgoing_sms),
                     network_status: Mutex::new(NetworkStatus::Disconnected),
                     storage_path: storage_path_str,
                     encryption_key: key,
@@ -79,14 +97,19 @@ impl NeoChatCore {
             }
         }
 
-        let id = Uuid::new_v4().to_string();
+        // New User
+        let keys = IdentityKeys::generate();
+        let pub_id = keys.id_string();
+        let pub_enc = keys.encryption_pub_string();
+        
         let my_profile = User {
-            id,
+            id: pub_id,
             username: "New User".to_string(),
             status: UserStatus::Offline,
             last_seen: 0,
             avatar_url: None,
             is_registered: false,
+            encryption_pubkey: Some(pub_enc),
         };
 
         Ok(Arc::new(Self {
@@ -94,6 +117,8 @@ impl NeoChatCore {
             messages: Mutex::new(HashMap::new()),
             contacts: Mutex::new(HashMap::new()),
             my_profile: Mutex::new(my_profile),
+            identity_keys: Mutex::new(keys),
+            outgoing_sms: Mutex::new(Vec::new()),
             network_status: Mutex::new(NetworkStatus::Disconnected),
             storage_path: storage_path_str,
             encryption_key: key,
@@ -105,11 +130,16 @@ impl NeoChatCore {
 // Private methods
 impl NeoChatCore {
     fn save_to_disk(&self) -> Result<(), CoreError> {
+        let keys = self.identity_keys.lock().unwrap();
+        
         let data = StorageData {
             user: self.my_profile.lock().unwrap().clone(),
             chats: self.chats.lock().unwrap().clone(),
             messages: self.messages.lock().unwrap().clone(),
             contacts: self.contacts.lock().unwrap().clone(),
+            identity_priv: keys.signing_key.to_bytes().to_vec(),
+            encryption_priv: keys.encryption_key.to_bytes().to_vec(),
+            outgoing_sms: self.outgoing_sms.lock().unwrap().clone(),
         };
 
         let json_bytes = serde_json::to_vec(&data)
@@ -208,13 +238,11 @@ impl NeoChatCore {
             let mut contacts = self.contacts.lock().unwrap();
             contacts.clear();
         }
+        // Keep keys and profile but reset status
         {
             let mut profile = self.my_profile.lock().unwrap();
-            profile.username = "New User".to_string();
             profile.status = UserStatus::Offline;
             profile.last_seen = 0;
-            profile.avatar_url = None;
-            profile.is_registered = false;
         }
         let _ = self.save_to_disk();
     }
@@ -224,15 +252,10 @@ impl NeoChatCore {
         let chats = self.chats.lock().unwrap();
         chats.values().cloned().collect()
     }
-
+    
+    // New create_chat logic with potential peer discovery
     pub fn create_chat(&self, participant_pubkey: String) -> Result<Chat, CoreError> {
-        // Validate pubkey format to avoid completely fake chats
-        if !PeerDiscovery::validate_pubkey(&participant_pubkey) {
-             return Err(CoreError::InvalidArgument("Invalid Public Key format".into()));
-        }
-
         let mut chats = self.chats.lock().unwrap();
-        // Check if chat with this participant already exists
         for chat in chats.values() {
             if chat.chat_type == ChatType::Private
                 && chat.participants.contains(&participant_pubkey)
@@ -241,18 +264,23 @@ impl NeoChatCore {
             }
         }
 
-        // Try to find user on local network/DHT
-        // Since we are P2P, we might not find them instantly.
-        let maybe_user = self.discovery.find_peer(&participant_pubkey);
+        // Try to find contact info locally or via discovery
+        // In P2P, we assume user might be offline. But we need their encryption key eventually.
+        // If we don't have it, we can't encrypt.
+        // For now, assume we got the ID (signing key).
+        // If we don't have the encryption key, we can't send encrypted messages.
+        // Solution: Create the chat but mark as "Pending Key Exchange"?
+        // Or assume the ID string CONTAINS the encryption key? No P2P usually separate.
+        // Let's assume for now, discovery finds it or user manually provides it via QR.
         
-        let (name, avatar, status) = if let Some(user) = maybe_user {
-             (user.username, user.avatar_url, user.status)
-        } else {
-             // If not found, create a "Pending" contact.
-             // We DO NOT fail here because in P2P you might add someone offline.
-             // But we set status to Offline.
-             let shortened = if participant_pubkey.len() > 8 { &participant_pubkey[..8] } else { &participant_pubkey };
-             (format!("User {}", shortened), None, UserStatus::Offline)
+        let (name, avatar, status) = {
+            let contacts = self.contacts.lock().unwrap();
+            if let Some(contact) = contacts.get(&participant_pubkey) {
+                (contact.name.clone(), contact.avatar_url.clone(), contact.status.clone())
+            } else {
+                // Not in contacts. Create default.
+                (format!("User {}", &participant_pubkey[..8]), None, UserStatus::Offline)
+            }
         };
 
         let id = Uuid::new_v4().to_string();
@@ -261,31 +289,32 @@ impl NeoChatCore {
         let chat = Chat {
             id: id.clone(),
             chat_type: ChatType::Private,
-            name: name.clone(),
-            avatar_url: avatar.clone(),
+            name,
+            avatar_url: avatar,
             unread_count: 0,
             last_message: None,
             participants: vec![my_id, participant_pubkey.clone()],
-            transport: TransportMode::Internet, // Default to Direct P2P
+            transport: TransportMode::Internet, 
         };
         chats.insert(id.clone(), chat.clone());
         
-        // Add to contacts
+        // Ensure contact exists
         let mut contacts = self.contacts.lock().unwrap();
         if !contacts.contains_key(&participant_pubkey) {
              contacts.insert(participant_pubkey.clone(), Contact {
                  id: participant_pubkey,
-                 name,
-                 avatar_url: avatar,
+                 name: chat.name.clone(),
+                 avatar_url: chat.avatar_url.clone(),
                  status,
-                 phone_number: None
+                 encryption_pubkey: None, // Need to fill this later or via QR
+                 phone_number: None,
              });
         }
         
         drop(chats);
         drop(contacts);
-        
         self.save_to_disk()?;
+        
         Ok(chat)
     }
 
@@ -311,20 +340,7 @@ impl NeoChatCore {
         self.save_to_disk()?;
         Ok(chat)
     }
-
-    pub fn delete_chat(&self, chat_id: String) {
-        {
-            let mut chats = self.chats.lock().unwrap();
-            chats.remove(&chat_id);
-        }
-        {
-            let mut messages = self.messages.lock().unwrap();
-            messages.remove(&chat_id);
-        }
-        let _ = self.save_to_disk();
-    }
-
-    /// Switch transport mode for a chat
+    
     pub fn set_chat_transport(&self, chat_id: String, mode: TransportMode) -> Result<(), CoreError> {
         let mut chats = self.chats.lock().unwrap();
         if let Some(chat) = chats.get_mut(&chat_id) {
@@ -337,7 +353,6 @@ impl NeoChatCore {
         }
     }
 
-    // === Messages ===
     pub fn get_messages(&self, chat_id: String, limit: u32, offset: u32) -> Vec<Message> {
         let messages_map = self.messages.lock().unwrap();
         if let Some(msgs) = messages_map.get(&chat_id) {
@@ -354,11 +369,13 @@ impl NeoChatCore {
     }
 
     pub fn send_message(&self, chat_id: String, text: String) -> Result<Message, CoreError> {
+        use base64::{Engine as _, engine::general_purpose};
+
         if text.trim().is_empty() {
             return Err(CoreError::Internal("Empty message".into()));
         }
 
-        let (_participants, transport) = {
+        let (participants, transport) = {
             let chats = self.chats.lock().unwrap();
             match chats.get(&chat_id) {
                 Some(chat) => (chat.participants.clone(), chat.transport.clone()),
@@ -367,14 +384,61 @@ impl NeoChatCore {
         };
 
         let my_id = self.my_profile.lock().unwrap().id.clone();
+        let msg_id = Uuid::new_v4().to_string();
+        
+        // Iterate over participants (Peer to Peer implies sending to each)
+        for p in &participants {
+            if p == &my_id { continue; }
+            
+            // Get peer contact to find encryption key
+            let contact = {
+                let contacts = self.contacts.lock().unwrap();
+                contacts.get(p).cloned()
+            };
+            
+            // Core Logic for Encryption Transport
+            if transport == TransportMode::Internet || transport == TransportMode::Sms {
+                if let Some(contact) = contact {
+                    if let Some(enc_key) = contact.encryption_pubkey {
+                        // We have key, Encrypt
+                        let peer_identity = PeerIdentity::from_strings(&contact.id, &enc_key)
+                            .map_err(|e| CoreError::Internal(format!("Invalid peer keys: {}", e)))?;
+                            
+                        let my_keys = self.identity_keys.lock().unwrap();
+                        let encrypted_bytes = encrypt_for_peer(&my_keys, &peer_identity, text.as_bytes())
+                            .map_err(|e| CoreError::Internal(format!("Encryption error: {}", e)))?;
+                            
+                        let encrypted_b64 = general_purpose::STANDARD.encode(&encrypted_bytes);
+                        
+                        if transport == TransportMode::Sms {
+                            if let Some(phone) = contact.phone_number {
+                                let mut sms_queue = self.outgoing_sms.lock().unwrap();
+                                sms_queue.push(SmsEnvelope {
+                                    id: msg_id.clone(),
+                                    recipient_phone: phone,
+                                    encrypted_payload: encrypted_b64, 
+                                });
+                            } else {
+                                println!("Warning: SMS transport selected but no phone number for contact {}", p);
+                            }
+                        } else {
+                            // Internet P2P logic
+                            // Queue for mesh/direct
+                        }
+                    } else {
+                        println!("Warning: No encryption key for peer {}, message stored but not sent securely.", p);
+                    }
+                }
+            }
+        }
+
         let msg = Message {
-            id: Uuid::new_v4().to_string(),
+            id: msg_id.clone(),
             chat_id: chat_id.clone(),
             sender_id: my_id,
-            text: text.clone(),
+            text: text.clone(), // Store plaintext locally
             timestamp: Self::now_ts(),
-            // In P2P, we default to Sending until we get an Ack
-            status: if transport == TransportMode::Internet { MessageStatus::Sending } else { MessageStatus::Sent },
+            status: if transport == TransportMode::Internet { MessageStatus::Sending } else { MessageStatus::PendingSms }, 
             attachments: vec![],
             transport,
         };
@@ -396,57 +460,65 @@ impl NeoChatCore {
             }
         }
         
-        // TODO: Trigger P2P sending logic (e.g. queue in mesh or open direct connection)
-        // For now, we save it as "Sending".
-        
         self.save_to_disk()?;
         Ok(msg)
     }
 
-    pub fn mark_as_read(&self, chat_id: String, message_ids: Vec<String>) {
+    // === SMS Management ===
+    pub fn poll_outgoing_sms(&self) -> Vec<SmsEnvelope> {
+        let queue = self.outgoing_sms.lock().unwrap();
+        queue.clone()
+    }
+
+    pub fn mark_sms_sent(&self, msg_id: String) {
+        {
+            let mut queue = self.outgoing_sms.lock().unwrap();
+            queue.retain(|sms| sms.id != msg_id);
+        }
+        // Also update message status if found
         {
             let mut messages_map = self.messages.lock().unwrap();
-            if let Some(msgs) = messages_map.get_mut(&chat_id) {
+            for msgs in messages_map.values_mut() {
                 for msg in msgs {
-                    if message_ids.contains(&msg.id) {
-                        msg.status = MessageStatus::Read;
+                    if msg.id == msg_id {
+                        msg.status = MessageStatus::Sent;
                     }
                 }
             }
         }
         let _ = self.save_to_disk();
     }
-
+    
     // === Contacts ===
     pub fn get_contacts(&self) -> Vec<Contact> {
         self.contacts.lock().unwrap().values().cloned().collect()
     }
-
+    
     pub fn add_contact(&self, pubkey: String, name: String) {
-        {
-            let mut contacts = self.contacts.lock().unwrap();
-            contacts.insert(pubkey.clone(), Contact {
-                id: pubkey,
-                name,
-                avatar_url: None,
-                status: UserStatus::Offline,
-                phone_number: None,
-            });
-        }
+        let mut contacts = self.contacts.lock().unwrap();
+        contacts.insert(pubkey.clone(), Contact {
+            id: pubkey,
+            name,
+            avatar_url: None,
+            status: UserStatus::Offline,
+            encryption_pubkey: None,
+            phone_number: None,
+        });
+        drop(contacts);
         let _ = self.save_to_disk();
     }
-
+    
     pub fn add_contact_with_phone(&self, pubkey: String, name: String, phone: String) {
-        {
-            let mut contacts = self.contacts.lock().unwrap();
-            contacts.insert(pubkey.clone(), Contact {
-                id: pubkey,
-                name,
-                avatar_url: None,
-                status: UserStatus::Offline,
-                phone_number: Some(phone),
-            });
-        }
+        let mut contacts = self.contacts.lock().unwrap();
+        contacts.insert(pubkey.clone(), Contact {
+            id: pubkey,
+            name,
+            avatar_url: None,
+            status: UserStatus::Offline,
+            encryption_pubkey: None, 
+            phone_number: Some(phone),
+        });
+        drop(contacts);
         let _ = self.save_to_disk();
     }
 
@@ -461,15 +533,7 @@ impl NeoChatCore {
             .cloned()
             .collect()
     }
-
-    // === Network ===
-    pub fn connect_peer(&self, _address: String) {
-        let mut status = self.network_status.lock().unwrap();
-        *status = NetworkStatus::Connecting;
-        // P2P connect logic
-        *status = NetworkStatus::Connected;
-    }
-
+    
     pub fn get_network_status(&self) -> NetworkStatus {
         self.network_status.lock().unwrap().clone()
     }

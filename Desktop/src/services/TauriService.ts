@@ -1,5 +1,12 @@
+
 import { invoke } from '@tauri-apps/api/core';
 import { Chat, Contact, Message, NetworkStatus, User } from '../types';
+
+export interface SmsEnvelope {
+    id: string;
+    recipient_phone: string;
+    encrypted_payload: string;
+}
 
 export class TauriService {
     static async getMyProfile(): Promise<User> {
@@ -15,18 +22,14 @@ export class TauriService {
     }
 
     static async getMessages(chatId: string): Promise<Message[]> {
-        // Rust expects: chat_id, limit, offset
-        // We hardcode limit/offset for now as UI doesn't handle pagination yet
         return await invoke<Message[]>('get_messages', { chatId, limit: 50, offset: 0 });
     }
 
     static async sendMessage(chatId: string, text: string): Promise<Message> {
-        // Rust expects: chat_id, text
         return await invoke<Message>('send_message', { chatId, text });
     }
 
     static async createChat(participantPubkey: string): Promise<Chat> {
-        // Rust expects: pubkey
         return await invoke<Chat>('create_chat', { pubkey: participantPubkey });
     }
 
@@ -45,13 +48,29 @@ export class TauriService {
     static async addContact(pubkey: string, name: string): Promise<void> {
         return await invoke<void>('add_contact', { pubkey, name });
     }
+    
+    static async addContactWithPhone(pubkey: string, name: string, phone: string): Promise<void> {
+        return await invoke<void>('add_contact_with_phone', { pubkey, name, phone });
+    }
 
     static async getNetworkStatus(): Promise<NetworkStatus> {
-        // We added a wrapper command in lib.rs for this
         return await invoke<NetworkStatus>('get_network_info');
     }
 
     static async updateProfile(name: string, avatar: string | null): Promise<void> {
         return await invoke<void>('update_profile', { name, avatar });
+    }
+
+    static async clearDatabase(): Promise<void> {
+        return await invoke<void>('clear_database');
+    }
+    
+    // SMS Logic
+    static async pollOutgoingSms(): Promise<SmsEnvelope[]> {
+        return await invoke<SmsEnvelope[]>('poll_outgoing_sms');
+    }
+    
+    static async markSmsSent(msgId: string): Promise<void> {
+        return await invoke<void>('mark_sms_sent', { msgId });
     }
 }

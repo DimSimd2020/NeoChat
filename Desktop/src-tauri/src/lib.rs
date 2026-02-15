@@ -1,5 +1,5 @@
 
-use neochat_core::{Chat, Contact, Message, NeoChatCore, TransportMode, User};
+use neochat_core::{Chat, Contact, Message, NeoChatCore, TransportMode, User, SmsEnvelope};
 use std::sync::Arc;
 use tauri::State;
 
@@ -94,6 +94,16 @@ fn set_chat_transport(state: State<AppState>, chat_id: String, mode: TransportMo
     state.core.set_chat_transport(chat_id, mode).map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+fn poll_outgoing_sms(state: State<AppState>) -> Vec<SmsEnvelope> {
+    state.core.poll_outgoing_sms()
+}
+
+#[tauri::command]
+fn mark_sms_sent(state: State<AppState>, msg_id: String) {
+    state.core.mark_sms_sent(msg_id)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // Initialize Core with a dummy path (storage logic in core is minimal/mocked for now)
@@ -119,7 +129,9 @@ pub fn run() {
             get_network_info,
             update_profile,
             clear_database,
-            set_chat_transport
+            set_chat_transport,
+            poll_outgoing_sms,
+            mark_sms_sent
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
