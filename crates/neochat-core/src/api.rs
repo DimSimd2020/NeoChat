@@ -1,8 +1,10 @@
+
 use crate::models::{
     Chat, ChatLastMessage, ChatType, Contact, CoreError, Message, MessageStatus, NetworkStatus,
     TransportMode, User, UserStatus,
 };
-use crate::transport::relay::{RelayClient, RelayConfig, RelayEnvelope};
+use crate::transport::discovery::{DiscoveryConfig, PeerDiscovery};
+
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -35,22 +37,19 @@ pub struct NeoChatCore {
     network_status: Mutex<NetworkStatus>,
     pub storage_path: String,
     pub encryption_key: [u8; 32],
-    // Relay client for network operations (not serialized)
-    relay: RelayClient,
+    discovery: PeerDiscovery,
 }
 
 #[uniffi::export]
 impl NeoChatCore {
     #[uniffi::constructor]
     pub fn new(storage_path_str: String) -> Result<Arc<Self>, CoreError> {
-        // Ensure storage directory exists
         if let Some(parent) = Path::new(&storage_path_str).parent() {
             if !parent.as_os_str().is_empty() {
                 fs::create_dir_all(parent).map_err(|e| CoreError::Internal(e.to_string()))?;
             }
         }
 
-        // Load or generate encryption key
         let key_path = format!("{}.key", storage_path_str);
         let key = if Path::new(&key_path).exists() {
             fs::read(&key_path)
@@ -65,9 +64,6 @@ impl NeoChatCore {
             key
         };
 
-        let relay_client = RelayClient::new(RelayConfig::default());
-
-        // Try to load existing data from disk
         if Path::new(&storage_path_str).exists() {
             if let Ok(loaded) = Self::load_from_disk(&storage_path_str, &key) {
                 return Ok(Arc::new(Self {
@@ -78,12 +74,11 @@ impl NeoChatCore {
                     network_status: Mutex::new(NetworkStatus::Disconnected),
                     storage_path: storage_path_str,
                     encryption_key: key,
-                    relay: relay_client,
+                    discovery: PeerDiscovery::new(DiscoveryConfig::default()),
                 }));
             }
         }
 
-        // Fresh profile — no mock data
         let id = Uuid::new_v4().to_string();
         let my_profile = User {
             id,
@@ -102,7 +97,7 @@ impl NeoChatCore {
             network_status: Mutex::new(NetworkStatus::Disconnected),
             storage_path: storage_path_str,
             encryption_key: key,
-            relay: relay_client,
+            discovery: PeerDiscovery::new(DiscoveryConfig::default()),
         }))
     }
 }
@@ -183,15 +178,8 @@ impl NeoChatCore {
             profile.last_seen = Self::now_ts();
             profile.is_registered = true;
         }
-        
-        let profile = self.my_profile.lock().unwrap().clone();
-        // Sync with relay
-        if let Err(e) = self.relay.update_profile(&profile) {
-             println!("Warning: Failed to sync profile with relay: {}", e);
-        }
-
         self.save_to_disk()?;
-        Ok(profile)
+        Ok(self.my_profile.lock().unwrap().clone())
     }
 
     pub fn get_my_profile(&self) -> User {
@@ -203,10 +191,6 @@ impl NeoChatCore {
             let mut profile = self.my_profile.lock().unwrap();
             profile.username = name;
             profile.avatar_url = avatar;
-        }
-        let profile = self.my_profile.lock().unwrap().clone();
-        if let Err(e) = self.relay.update_profile(&profile) {
-             println!("Warning: Failed to sync profile with relay: {}", e);
         }
         let _ = self.save_to_disk();
     }
@@ -242,6 +226,11 @@ impl NeoChatCore {
     }
 
     pub fn create_chat(&self, participant_pubkey: String) -> Result<Chat, CoreError> {
+        // Validate pubkey format to avoid completely fake chats
+        if !PeerDiscovery::validate_pubkey(&participant_pubkey) {
+             return Err(CoreError::InvalidArgument("Invalid Public Key format".into()));
+        }
+
         let mut chats = self.chats.lock().unwrap();
         // Check if chat with this participant already exists
         for chat in chats.values() {
@@ -252,22 +241,18 @@ impl NeoChatCore {
             }
         }
 
-        // Check local contacts first
-        let contacts = self.contacts.lock().unwrap();
-        let candidate = contacts.get(&participant_pubkey).cloned();
-        drop(contacts); // Release lock before network call
-
-        let (name, avatar, status) = if let Some(contact) = candidate {
-            (contact.name, contact.avatar_url, contact.status)
+        // Try to find user on local network/DHT
+        // Since we are P2P, we might not find them instantly.
+        let maybe_user = self.discovery.find_peer(&participant_pubkey);
+        
+        let (name, avatar, status) = if let Some(user) = maybe_user {
+             (user.username, user.avatar_url, user.status)
         } else {
-            // Try fetch from network
-            match self.relay.get_profile(&participant_pubkey) {
-                 Ok(user) => (user.username, user.avatar_url, user.status),
-                 Err(_) => {
-                     // If user is not found, we Return Error instead of creating fake chat
-                     return Err(CoreError::InvalidArgument("User not found on network".into()));
-                 }
-            }
+             // If not found, create a "Pending" contact.
+             // We DO NOT fail here because in P2P you might add someone offline.
+             // But we set status to Offline.
+             let shortened = if participant_pubkey.len() > 8 { &participant_pubkey[..8] } else { &participant_pubkey };
+             (format!("User {}", shortened), None, UserStatus::Offline)
         };
 
         let id = Uuid::new_v4().to_string();
@@ -281,20 +266,20 @@ impl NeoChatCore {
             unread_count: 0,
             last_message: None,
             participants: vec![my_id, participant_pubkey.clone()],
-            transport: TransportMode::Internet,
+            transport: TransportMode::Internet, // Default to Direct P2P
         };
         chats.insert(id.clone(), chat.clone());
         
-        // Add to contacts if not exists
+        // Add to contacts
         let mut contacts = self.contacts.lock().unwrap();
         if !contacts.contains_key(&participant_pubkey) {
-            contacts.insert(participant_pubkey.clone(), Contact {
-                id: participant_pubkey,
-                name,
-                avatar_url: avatar,
-                status,
-                phone_number: None,
-            });
+             contacts.insert(participant_pubkey.clone(), Contact {
+                 id: participant_pubkey,
+                 name,
+                 avatar_url: avatar,
+                 status,
+                 phone_number: None
+             });
         }
         
         drop(chats);
@@ -339,7 +324,7 @@ impl NeoChatCore {
         let _ = self.save_to_disk();
     }
 
-    /// Switch transport mode for a chat (Internet <-> SMS)
+    /// Switch transport mode for a chat
     pub fn set_chat_transport(&self, chat_id: String, mode: TransportMode) -> Result<(), CoreError> {
         let mut chats = self.chats.lock().unwrap();
         if let Some(chat) = chats.get_mut(&chat_id) {
@@ -373,51 +358,26 @@ impl NeoChatCore {
             return Err(CoreError::Internal("Empty message".into()));
         }
 
-        // Get chat participants and transport
-        let (participants, transport, _chat_type) = {
+        let (_participants, transport) = {
             let chats = self.chats.lock().unwrap();
             match chats.get(&chat_id) {
-                Some(chat) => (chat.participants.clone(), chat.transport.clone(), chat.chat_type.clone()),
+                Some(chat) => (chat.participants.clone(), chat.transport.clone()),
                 None => return Err(CoreError::Internal("Chat not found".into())),
             }
         };
 
         let my_id = self.my_profile.lock().unwrap().id.clone();
-        let msg_id = Uuid::new_v4().to_string();
-        let timestamp = Self::now_ts();
-
         let msg = Message {
-            id: msg_id.clone(),
+            id: Uuid::new_v4().to_string(),
             chat_id: chat_id.clone(),
-            sender_id: my_id.clone(),
+            sender_id: my_id,
             text: text.clone(),
-            timestamp,
-            status: MessageStatus::Sent,
+            timestamp: Self::now_ts(),
+            // In P2P, we default to Sending until we get an Ack
+            status: if transport == TransportMode::Internet { MessageStatus::Sending } else { MessageStatus::Sent },
             attachments: vec![],
-            transport: transport.clone(),
+            transport,
         };
-
-        // Send to network
-        if transport == TransportMode::Internet {
-             for p in participants {
-                 if p == my_id { continue; }
-                 
-                 // TODO: Encrypt payload properly
-                 let envelope = RelayEnvelope {
-                     from: my_id.clone(),
-                     to: p.clone(),
-                     payload: text.clone(), // Sending cleartext for now as E2E setup is complex without PKI
-                     message_id: msg_id.clone(),
-                     timestamp,
-                 };
-                 
-                 if let Err(e) = self.relay.send(&envelope) {
-                     println!("Failed to send to {}: {}", p, e);
-                     // We still save the message locally but maybe mark as failed?
-                     // returning error would stop local save
-                 }
-             }
-        }
 
         {
             let mut messages_map = self.messages.lock().unwrap();
@@ -435,82 +395,12 @@ impl NeoChatCore {
                 });
             }
         }
+        
+        // TODO: Trigger P2P sending logic (e.g. queue in mesh or open direct connection)
+        // For now, we save it as "Sending".
+        
         self.save_to_disk()?;
         Ok(msg)
-    }
-
-    pub fn poll_messages(&self) -> Result<Vec<Message>, CoreError> {
-        let my_id = self.my_profile.lock().unwrap().id.clone();
-        
-        let envelopes = self.relay.poll(&my_id)
-            .map_err(|e| CoreError::Internal(format!("Poll error: {}", e)))?;
-
-        let mut new_messages = Vec::new();
-        
-        for env in envelopes {
-            // Find or create chat for sender
-            // Note: In real app we should check signature
-            
-            // Check if chat exists
-            let sender_id = env.from.clone();
-            
-            // We need to find which chat this belongs to. 
-            // In private chat, participants = [me, sender]
-            let mut chat_id = String::new();
-            
-            {
-                let chats = self.chats.lock().unwrap();
-                for c in chats.values() {
-                     if c.chat_type == ChatType::Private && c.participants.contains(&sender_id) {
-                         chat_id = c.id.clone();
-                         break;
-                     }
-                }
-            }
-            
-            if chat_id.is_empty() {
-                // New chat from unknown user? 
-                // We should fetch profile first
-                 drop(self.chats.lock().unwrap()); // Ensure not locked
-                 match self.create_chat(sender_id.clone()) {
-                     Ok(chat) => chat_id = chat.id,
-                     Err(e) => {
-                         println!("Failed to create chat for incoming msg: {}", e);
-                         continue;
-                     }
-                 }
-            }
-            
-            let msg = Message {
-                id: env.message_id.clone(),
-                chat_id: chat_id.clone(),
-                sender_id: sender_id.clone(),
-                text: env.payload.clone(),
-                timestamp: env.timestamp,
-                status: MessageStatus::Read, // or Received
-                attachments: vec![],
-                transport: TransportMode::Internet,
-            };
-            
-            {
-                let mut messages_map = self.messages.lock().unwrap();
-                let msgs = messages_map.entry(chat_id.clone()).or_default();
-                // Dedup
-                if !msgs.iter().any(|m| m.id == msg.id) {
-                    msgs.push(msg.clone());
-                    new_messages.push(msg.clone());
-                }
-            }
-            
-             // Ack message
-             let _ = self.relay.ack(&my_id, &env.message_id);
-        }
-        
-        if !new_messages.is_empty() {
-             self.save_to_disk()?;
-        }
-        
-        Ok(new_messages)
     }
 
     pub fn mark_as_read(&self, chat_id: String, message_ids: Vec<String>) {
@@ -546,7 +436,6 @@ impl NeoChatCore {
         let _ = self.save_to_disk();
     }
 
-    /// Add contact with phone number (for SMS fallback)
     pub fn add_contact_with_phone(&self, pubkey: String, name: String, phone: String) {
         {
             let mut contacts = self.contacts.lock().unwrap();
@@ -577,7 +466,7 @@ impl NeoChatCore {
     pub fn connect_peer(&self, _address: String) {
         let mut status = self.network_status.lock().unwrap();
         *status = NetworkStatus::Connecting;
-        // TODO: real P2P connection via libp2p/QUIC
+        // P2P connect logic
         *status = NetworkStatus::Connected;
     }
 

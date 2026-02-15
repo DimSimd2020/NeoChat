@@ -1,5 +1,8 @@
 use serde::{Deserialize, Serialize};
 
+// Re-export specific uniffi types if needed, or use them directly.
+// Uniffi supports basic types, string, Option, Vec, Result, specific structs (Record), and Objects.
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, uniffi::Enum)]
 #[serde(rename_all = "lowercase")]
 pub enum UserStatus {
@@ -24,7 +27,6 @@ pub struct Contact {
     pub name: String, // local nickname or profile name
     pub avatar_url: Option<String>,
     pub status: UserStatus,
-    pub phone_number: Option<String>, // For SMS fallback mode
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, uniffi::Enum)]
@@ -32,22 +34,6 @@ pub struct Contact {
 pub enum ChatType {
     Private,
     Group,
-}
-
-/// Messaging transport mode
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, uniffi::Enum)]
-#[serde(rename_all = "lowercase")]
-pub enum TransportMode {
-    /// Level 0: Direct encrypted P2P over QUIC (default)
-    Internet,
-    /// Level 1: Encrypted relay through Cloudflare Worker / CDN
-    CdnRelay,
-    /// Level 3: Data encoded in DNS queries (slow, text only)
-    DnsTunnel,
-    /// Level 2: Bluetooth/WiFi mesh — store-and-forward between devices
-    Mesh,
-    /// Level 4: SMS fallback — carrier SMS with encrypted payload
-    Sms,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, uniffi::Record)]
@@ -66,7 +52,6 @@ pub struct Chat {
     pub unread_count: u32,
     pub last_message: Option<ChatLastMessage>,
     pub participants: Vec<String>,
-    pub transport: TransportMode,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, uniffi::Enum)]
@@ -88,7 +73,6 @@ pub struct Message {
     pub timestamp: u64,
     pub status: MessageStatus,
     pub attachments: Vec<String>,
-    pub transport: TransportMode,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, uniffi::Enum)]

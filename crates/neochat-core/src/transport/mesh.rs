@@ -1,6 +1,6 @@
+
 //! Bluetooth/WiFi mesh transport — store-and-forward P2P mesh networking.
 //! Messages hop between NeoChat devices via BLE/WiFi Direct until they reach the recipient.
-//! Platform-specific BLE/WiFi code lives in Android/Desktop layers — this module defines the protocol.
 
 use serde::{Deserialize, Serialize};
 

@@ -8,45 +8,11 @@
         "close": "Close",
         "save": "Save",
         "cancel": "Cancel",
-        "back": "Back",
-        "online": "Online",
-        "generating": "Generating...",
-        "security_privacy": "Security & Privacy",
-        "source_code": "Source Code",
-        "guest": "Guest",
-        "no_id": "No ID",
-        "no_messages": "No messages",
-        "you": "You",
-        "close_settings": "Close Settings",
-        "or_upload": "Or upload an image",
-        "upload_image": "Upload Image",
-        "qr_not_found": "Could not find QR code in image.",
-        "loading": "Loading...",
-        "menu": "Menu",
-        "close_scanner": "Close scanner"
+        "back": "Back"
     },
     "sidebar": {
         "no_chats": "No chats yet",
         "new_chat": "New Conversation"
-    },
-    "chats": {
-        "title": "Chats",
-        "background": "Chat Background",
-        "default": "Default",
-        "gradient": "Gradient",
-        "black": "Black",
-        "select_chat": "Select a chat",
-        "select_chat_desc": "Choose a conversation from the sidebar",
-        "write_message": "Write a message...",
-        "last_seen": "last seen recently",
-        "attach_file": "Attach file",
-        "emoji": "Add emoji",
-        "send": "Send message",
-        "voice": "Voice message",
-        "more_options": "More options",
-        "custom_image": "Custom Image",
-        "remove_image": "Remove Image",
-        "white": "White"
     },
     "new_chat": {
         "title": "New Conversation",
@@ -65,113 +31,18 @@
     "settings": {
         "title": "Settings",
         "account": "Account",
-        "chats": "Chats",
         "appearance": "Appearance",
         "privacy": "Privacy",
         "language": "Language",
-        "neon_mode": "Neon Mode",
         "username": "Username",
-        "pubkey_id": "Public Key (ID)",
-        "copy_id": "Copy ID",
         "update_profile": "Update Profile",
         "select_language": "Select Language",
-        "scan_to_add": "Scan to add contact",
-        "theme": "Theme",
-        "accent": "Accent Color",
-        "dark": "Dark",
-        "light": "Light",
-        "system": "System",
-        "advanced": "Advanced",
-        "experimental_desc": "Experimental glowing effects",
-        "logout": "Log Out"
-    },
-    "storage": {
-        "title": "Storage",
-        "cache": "Cache",
-        "used": "Used Space",
-        "used_val": "24.5 MB",
-        "clear": "Clear Cache",
-        "clear_all": "Full Wipe",
-        "confirm_clear_db": "Are you sure you want to delete all data? This will wipe all keys, chats, and database. This action is irreversible."
-    },
-    "privacy": {
-        "self_destruct": "Self-Destruct Timer",
-        "self_destruct_desc": "Messages will auto-delete from both devices after being read."
+        "scan_to_add": "Scan to add contact"
     },
     "onboarding": {
         "welcome": "Welcome to NeoChat",
-        "subtitle": "Your secure, decentralized messenger.",
-        "username_label": "Choose a Username",
-        "username_placeholder": "e.g. NeoUser",
-        "start": "Create Profile",
-        "footer": "Your keys are generated locally. No phone number required."
-    },
-    "qr": {
-        "scan_title": "Scan QR Code",
-        "upload": "Upload Image"
-    },
-    "password": {
-        "title": "Profile Password",
-        "desc": "Encrypts your private key. Without the password, access is impossible.",
-        "set": "Set Password",
-        "change": "Change Password",
-        "remove": "Remove Password",
-        "enter": "Enter Password",
-        "confirm": "Confirm Password",
-        "current": "Current Password",
-        "new_pass": "New Password",
-        "placeholder": "Min. 8 characters",
-        "wrong": "Wrong password",
-        "mismatch": "Passwords do not match",
-        "set_success": "Password set!",
-        "changed_success": "Password changed!",
-        "removed": "Password removed",
-        "locked": "Profile is locked",
-        "unlock": "Unlock",
-        "strength": "Password strength",
-        "strength_weak": "Weak",
-        "strength_medium": "Medium",
-        "strength_strong": "Strong",
-        "strength_excellent": "Excellent",
-        "req_length": "Min. 8 characters",
-        "req_upper": "Uppercase letter (A-Z)",
-        "req_lower": "Lowercase letter (a-z)",
-        "req_digit": "Digit (0-9)",
-        "req_special": "Special character (!@#$%&*)",
-        "show": "Show",
-        "hide": "Hide",
-        "attempts_left": "attempts left",
-        "locked_for": "Locked for",
-        "seconds_short": "s"
-    },
-    "key_export": {
-        "title": "Transfer Profile",
-        "desc": "Export your encrypted key to sign in on another device.",
-        "export": "Export Key",
-        "import": "Import Key",
-        "export_desc": "File will be encrypted with your password",
-        "import_desc": "Upload the key file and enter your password",
-        "export_success": "Key exported!",
-        "import_success": "Key imported!",
-        "import_fail": "Invalid file or password",
-        "need_password": "Set a profile password first"
-    },
-    "contacts": {
-        "title": "Contacts",
-        "no_contacts": "No contacts",
-        "add_contact": "Add Contact"
-    },
-    "qr_modal": {
-        "title": "My QR Code",
-        "share_desc": "Show this code to be added to contacts"
-    },
-    "transport": {
-        "title": "Transport",
-        "internet": "P2P Internet",
-        "cdn_relay": "CDN Relay",
-        "dns_tunnel": "DNS Tunnel",
-        "mesh": "Mesh (Bluetooth)",
-        "sms": "SMS",
-        "description": "Choose how to deliver messages"
+        "subtitle": "Secure, private, and unstoppable communication.",
+        "username_label": "Choose your username",
+        "start": "Get Started"
     }
 }

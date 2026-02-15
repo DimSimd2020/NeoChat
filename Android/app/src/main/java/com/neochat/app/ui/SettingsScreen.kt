@@ -14,10 +14,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.neochat.app.R
 import com.neochat.app.ui.theme.*
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -28,10 +26,10 @@ fun SettingsScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(stringResource(R.string.nav_settings), color = NeoOnSurface) },
+                title = { Text("Settings", color = NeoOnSurface) },
                 navigationIcon = {
                     IconButton(onClick = onBackClick) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.common_back), tint = NeoOnSurface)
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = NeoOnSurface)
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = NeoBlack)
@@ -46,28 +44,20 @@ fun SettingsScreen(
                 .verticalScroll(rememberScrollState())
                 .background(NeoBlack)
         ) {
-            SettingsCategory(stringResource(R.string.settings_account))
-            SettingsItem(Icons.Default.AccountCircle, stringResource(R.string.settings_profile), stringResource(R.string.settings_profile_desc))
-            SettingsItem(Icons.Default.Lock, stringResource(R.string.settings_privacy), stringResource(R.string.settings_privacy_desc))
+            SettingsCategory("Account")
+            SettingsItem(Icons.Default.AccountCircle, "My Profile", "Manage your profile & keys")
+            SettingsItem(Icons.Default.Lock, "Privacy & Security", "End-to-end encryption settings")
+            
+            Divider(color = NeoSurface, thickness = 1.dp, modifier = Modifier.padding(vertical = 16.dp))
+            
+            SettingsCategory("Appearance")
+            SettingsItem(Icons.Default.Settings, "Theme", "Dark Mode (Default)")
+            SettingsItem(Icons.Default.Settings, "Accent Color", "Neo Blue")
+            
+            Divider(color = NeoSurface, thickness = 1.dp, modifier = Modifier.padding(vertical = 16.dp))
 
-            HorizontalDivider(color = NeoSurface, thickness = 1.dp, modifier = Modifier.padding(vertical = 16.dp))
-
-            SettingsCategory(stringResource(R.string.transport_title))
-            SettingsItem(Icons.Default.Settings, stringResource(R.string.transport_default), stringResource(R.string.transport_default_desc))
-            SettingsItem(Icons.Default.Settings, stringResource(R.string.transport_cdn_relay), stringResource(R.string.transport_relay_url))
-            SettingsItem(Icons.Default.Settings, stringResource(R.string.transport_mesh), stringResource(R.string.transport_mesh_settings))
-            SettingsItem(Icons.Default.Settings, stringResource(R.string.transport_sms), stringResource(R.string.transport_sms_config))
-
-            HorizontalDivider(color = NeoSurface, thickness = 1.dp, modifier = Modifier.padding(vertical = 16.dp))
-
-            SettingsCategory(stringResource(R.string.settings_appearance))
-            SettingsItem(Icons.Default.Settings, stringResource(R.string.settings_theme), stringResource(R.string.settings_theme_desc))
-            SettingsItem(Icons.Default.Settings, stringResource(R.string.settings_accent), stringResource(R.string.settings_accent_desc))
-
-            HorizontalDivider(color = NeoSurface, thickness = 1.dp, modifier = Modifier.padding(vertical = 16.dp))
-
-            SettingsCategory(stringResource(R.string.settings_about))
-            SettingsItem(Icons.Default.Settings, stringResource(R.string.settings_version), "1.0.0 Alpha")
+            SettingsCategory("About")
+            SettingsItem(Icons.Default.Settings, "Version", "1.0.0 Alpha")
         }
     }
 }
@@ -87,6 +77,7 @@ fun SettingsItem(icon: ImageVector, title: String, subtitle: String) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .clickable(onClick = {})
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -98,3 +89,7 @@ fun SettingsItem(icon: ImageVector, title: String, subtitle: String) {
         }
     }
 }
+
+fun Modifier.clickable(onClick: () -> Unit) = this.then(
+    Modifier.clickable(onClick = onClick)
+)

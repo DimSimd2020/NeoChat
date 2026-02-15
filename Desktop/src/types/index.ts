@@ -14,15 +14,13 @@ export interface Contact {
     name: string;
     avatar_url?: string;
     status: UserStatus;
-    phone_number?: string; // For SMS fallback mode
 }
 
 export type ChatType = 'private' | 'group';
-export type TransportMode = 'internet' | 'cdn_relay' | 'dns_tunnel' | 'mesh' | 'sms';
 
 export interface Chat {
     id: string; // chat_uuid_v4
-    chat_type: ChatType;
+    chat_type: ChatType; // Updated field name to match Rust uniffi
     name: string;
     avatar_url?: string;
     unread_count: number;
@@ -31,21 +29,19 @@ export interface Chat {
         timestamp: number;
         sender_id: string;
     };
-    participants: string[];
-    transport: TransportMode;
+    participants: string[]; // pubkeys
 }
 
 export type MessageStatus = 'sending' | 'sent' | 'delivered' | 'read' | 'failed';
 
 export interface Message {
-    id: string;
+    id: string; // msg_uuid_v4
     chat_id: string;
-    sender_id: string;
+    sender_id: string; // pubkey_string_base32
     text: string;
     timestamp: number;
     status: MessageStatus;
-    attachments?: string[];
-    transport: TransportMode;
+    attachments?: string[]; // list of file paths or metadata
 }
 
 export type NetworkStatus = 'connected' | 'disconnected' | 'connecting';

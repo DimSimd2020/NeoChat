@@ -135,12 +135,6 @@
     font-weight: 500;
     transition: all 0.2s;
     cursor: pointer;
-    text-align: left;
-}
-
-.drawer-item.modern>span {
-    flex: 1;
-    text-align: left;
 }
 
 .drawer-item.modern:hover {

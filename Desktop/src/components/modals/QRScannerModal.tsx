@@ -2,7 +2,6 @@ import React, { useEffect, useRef, useState } from 'react';
 import './QRScannerModal.css';
 import { Html5QrcodeScanner, Html5Qrcode } from 'html5-qrcode';
 import { X, Upload } from 'lucide-react';
-import { useLanguage } from '../../i18n/LanguageContext';
 
 interface QRScannerModalProps {
     onScan: (result: string) => void;
@@ -10,7 +9,6 @@ interface QRScannerModalProps {
 }
 
 export function QRScannerModal({ onScan, onClose }: QRScannerModalProps) {
-    const { t } = useLanguage();
     const scannerRef = useRef<Html5QrcodeScanner | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [error, setError] = useState<string | null>(null);
@@ -50,7 +48,7 @@ export function QRScannerModal({ onScan, onClose }: QRScannerModalProps) {
             onScan(result);
             onClose();
         } catch (err: any) {
-            setError(t('common.qr_not_found'));
+            setError("Could not find QR code in image.");
         }
     };
 
@@ -58,8 +56,8 @@ export function QRScannerModal({ onScan, onClose }: QRScannerModalProps) {
         <div className="qr-modal-overlay">
             <div className="qr-modal bg-[#1C1C1E]">
                 <div className="qr-header">
-                    <h3>{t('qr.scan_title')}</h3>
-                    <button onClick={onClose} className="btn-close" aria-label={t('common.close_scanner')}>
+                    <h3>Scan QR Code</h3>
+                    <button onClick={onClose} className="btn-close">
                         <X size={20} />
                     </button>
                 </div>
@@ -68,7 +66,7 @@ export function QRScannerModal({ onScan, onClose }: QRScannerModalProps) {
                 <div id="reader-file-hidden" style={{ display: 'none' }}></div>
 
                 <div className="qr-actions">
-                    <p className="text-secondary mb-4">{t('common.or_upload')}</p>
+                    <p className="text-secondary mb-4">Or upload an image</p>
                     <input
                         type="file"
                         ref={fileInputRef}
@@ -77,7 +75,7 @@ export function QRScannerModal({ onScan, onClose }: QRScannerModalProps) {
                         onChange={handleFileUpload}
                     />
                     <button className="btn-secondary" onClick={() => fileInputRef.current?.click()}>
-                        <Upload size={18} className="mr-2" /> {t('common.upload_image')}
+                        <Upload size={18} className="mr-2" /> Upload Image
                     </button>
                     {error && <p className="text-red-500 mt-2">{error}</p>}
                 </div>

@@ -4,7 +4,6 @@ import android.content.Context
 import com.neochat.app.domain.Chat
 import com.neochat.app.domain.Message
 import com.neochat.app.domain.MessagePreview
-import com.neochat.app.domain.TransportMode
 import com.neochat.app.domain.User
 import com.neochat.core.NeoChatCore
 import kotlinx.coroutines.flow.Flow
@@ -14,8 +13,10 @@ object MockRepository {
 
     private var core: NeoChatCore? = null
 
+    // Helper to ensure dummy data isn't used anymore, but we need to init core.
     fun init(context: Context) {
         if (core == null) {
+            // Store db in app internal files directory
             val dbPath = context.filesDir.absolutePath + "/neochat.db"
             core = NeoChatCore(dbPath)
         }
@@ -26,10 +27,12 @@ object MockRepository {
     }
 
     fun getMyProfile(): User {
-        return try {
-            getCoreOrThrow().getMyProfile().toDomain()
+        try {
+            val u = getCoreOrThrow().getMyProfile()
+            return u.toDomain()
         } catch (e: Exception) {
-            User("error", "Error: ${e.message}", "offline", 0)
+            // Fallback for preview/testing if core missing
+            return User("error", "Error: ${e.message}", "offline", 0)
         }
     }
 
@@ -44,7 +47,8 @@ object MockRepository {
 
     fun getMessages(chatId: String): Flow<List<Message>> = flow {
         try {
-            val list = getCoreOrThrow().getMessages(chatId, 50u, 0u)
+            // Hardcoded limit/offset for now
+            val list = getCoreOrThrow().getMessages(chatId, 50, 0)
             emit(list.map { it.toDomain() })
         } catch (e: Exception) {
             emit(emptyList())
@@ -55,14 +59,6 @@ object MockRepository {
         val msg = getCoreOrThrow().sendMessage(chatId, text)
         return msg.toDomain()
     }
-
-    fun getChatById(chatId: String): Chat? {
-        return try {
-            getCoreOrThrow().getChats().find { it.id == chatId }?.toDomain()
-        } catch (e: Exception) {
-            null
-        }
-    }
 }
 
 // Extension functions to map Core types to Domain types
@@ -72,13 +68,14 @@ private fun com.neochat.core.User.toDomain(): User {
         id = this.id,
         username = this.username,
         status = this.status.name.lowercase(),
-        lastSeen = this.lastSeen.toLong() * 1000,
+        lastSeen = this.lastSeen.toLong() * 1000, 
         avatarUrl = this.avatarUrl
     )
 }
 
 private fun com.neochat.core.Chat.toDomain(): Chat {
     val lastMsgPreview = this.lastMessage?.let {
+        // ChatLastMessage
         MessagePreview(it.text, it.timestamp.toLong() * 1000)
     }
     return Chat(
@@ -86,10 +83,9 @@ private fun com.neochat.core.Chat.toDomain(): Chat {
         type = this.chatType.name.lowercase(),
         name = this.name,
         avatarUrl = this.avatarUrl,
-        unreadCount = this.unreadCount.toInt(),
+        unreadCount = this.unreadCount.toInt(), 
         lastMessage = lastMsgPreview,
-        participants = this.participants,
-        transport = TransportMode.fromString(this.transport.name)
+        participants = this.participants
     )
 }
 
@@ -101,7 +97,6 @@ private fun com.neochat.core.Message.toDomain(): Message {
         text = this.text,
         timestamp = this.timestamp.toLong() * 1000,
         status = this.status.name.lowercase(),
-        attachments = this.attachments,
-        transport = TransportMode.fromString(this.transport.name)
+        attachments = this.attachments
     )
 }
