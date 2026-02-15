@@ -7,6 +7,8 @@ import {
 import { useState } from 'react';
 import logoClean from '../../assets/logo_clean.png';
 import { useLanguage } from '../i18n/LanguageContext';
+import { ContactsModal } from './modals/ContactsModal';
+import { MyQRModal } from './modals/MyQRModal';
 
 interface SidebarProps {
     currentUser: User | null;
@@ -35,12 +37,31 @@ const formatTime = (ts: number): string => {
 
 export function Sidebar({ currentUser, chats, activeChatId, onChatSelect, onNewChat, onOpenSettings }: SidebarProps) {
     const [isdrawerOpen, setIsDrawerOpen] = useState(false);
+    const [showContacts, setShowContacts] = useState(false);
+    const [showMyQR, setShowMyQR] = useState(false);
     const { t } = useLanguage();
+
+    const handleOpenContacts = () => {
+        setIsDrawerOpen(false);
+        setShowContacts(true);
+    };
+
+    const handleOpenMyQR = () => {
+        setIsDrawerOpen(false);
+        setShowMyQR(true);
+    };
+
+    const handleOpenSecurity = () => {
+        setIsDrawerOpen(false);
+        onOpenSettings();
+        // Settings will open on privacy tab
+        localStorage.setItem('settings_active_tab', 'privacy');
+    };
 
     return (
         <div className="sidebar">
             <div className="sidebar-header">
-                <button className="btn-icon header-menu-btn" onClick={() => setIsDrawerOpen(true)}>
+                <button className="btn-icon header-menu-btn" onClick={() => setIsDrawerOpen(true)} aria-label={t('common.menu')}>
                     <Menu size={24} />
                 </button>
                 <div className="search-bar">
@@ -56,14 +77,14 @@ export function Sidebar({ currentUser, chats, activeChatId, onChatSelect, onNewC
                         <div className="user-profile-drawer">
                             <div className="avatar large gradient-ring">
                                 {currentUser?.avatar_url ? (
-                                    <img src={currentUser.avatar_url} alt="You" />
+                                    <img src={currentUser.avatar_url} alt={currentUser?.username || ''} />
                                 ) : (
                                     currentUser?.username?.charAt(0).toUpperCase() || <UserIcon size={32} />
                                 )}
                             </div>
                             <div className="drawer-user-info">
-                                <div className="font-bold text-xl">{currentUser?.username || "Guest"}</div>
-                                <div className="text-sm opacity-70 truncate font-mono" style={{ maxWidth: '200px' }}>{currentUser?.id || "No ID"}</div>
+                                <div className="font-bold text-xl">{currentUser?.username || t('common.guest')}</div>
+                                <div className="text-sm opacity-70 truncate font-mono" style={{ maxWidth: '200px' }}>{currentUser?.id || t('common.no_id')}</div>
                             </div>
                         </div>
                         <button className="btn-icon drawer-close" onClick={() => setIsDrawerOpen(false)}>
@@ -78,12 +99,12 @@ export function Sidebar({ currentUser, chats, activeChatId, onChatSelect, onNewC
                                 <span>{t('common.settings')}</span>
                                 <ChevronRight size={16} className="ml-auto opacity-30" />
                             </button>
-                            <button className="drawer-item modern">
+                            <button className="drawer-item modern" onClick={handleOpenContacts}>
                                 <div className="icon-bg bg-green"><UserIcon size={20} /></div>
                                 <span>{t('common.contacts')}</span>
                                 <ChevronRight size={16} className="ml-auto opacity-30" />
                             </button>
-                            <button className="drawer-item modern">
+                            <button className="drawer-item modern" onClick={handleOpenMyQR}>
                                 <div className="icon-bg bg-purple"><QrCode size={20} /></div>
                                 <span>{t('common.my_qr')}</span>
                                 <ChevronRight size={16} className="ml-auto opacity-30" />
@@ -91,13 +112,13 @@ export function Sidebar({ currentUser, chats, activeChatId, onChatSelect, onNewC
                         </div>
 
                         <div className="drawer-section mt-4">
-                            <button className="drawer-item modern">
+                            <button className="drawer-item modern" onClick={handleOpenSecurity}>
                                 <div className="icon-bg bg-orange"><Shield size={20} /></div>
-                                <span>Security & Privacy</span>
+                                <span>{t('common.security_privacy')}</span>
                             </button>
                             <button className="drawer-item modern" onClick={() => window.open('https://github.com/DimSimd2020/NeoChat')}>
                                 <div className="icon-bg bg-gray"><Github size={20} /></div>
-                                <span>Source Code</span>
+                                <span>{t('common.source_code')}</span>
                             </button>
                         </div>
                     </div>
@@ -139,8 +160,8 @@ export function Sidebar({ currentUser, chats, activeChatId, onChatSelect, onNewC
 
                                 <div className="bottom-row flex justify-between items-center">
                                     <div className="chat-msg">
-                                        {chat.last_message?.sender_id === currentUser?.id ? "You: " : ""}
-                                        {chat.last_message?.text || "No messages"}
+                                        {chat.last_message?.sender_id === currentUser?.id ? `${t('common.you')}: ` : ""}
+                                        {chat.last_message?.text || t('common.no_messages')}
                                     </div>
                                     {chat.unread_count > 0 && (
                                         <div className="unread-badge">{chat.unread_count}</div>
@@ -157,6 +178,10 @@ export function Sidebar({ currentUser, chats, activeChatId, onChatSelect, onNewC
                     <Plus size={24} />
                 </button>
             </div>
+
+            {/* Modals */}
+            {showContacts && <ContactsModal onClose={() => setShowContacts(false)} />}
+            {showMyQR && <MyQRModal currentUser={currentUser} onClose={() => setShowMyQR(false)} />}
         </div>
     );
 }

@@ -1,4 +1,4 @@
-use neochat_core::{Chat, Contact, Message, NeoChatCore, User};
+use neochat_core::{Chat, Contact, Message, NeoChatCore, TransportMode, User};
 use std::sync::Arc;
 use tauri::State;
 
@@ -69,6 +69,16 @@ fn add_contact(state: State<AppState>, pubkey: String, name: String) {
 }
 
 #[tauri::command]
+fn add_contact_with_phone(state: State<AppState>, pubkey: String, name: String, phone: String) {
+    state.core.add_contact_with_phone(pubkey, name, phone)
+}
+
+#[tauri::command]
+fn set_chat_transport(state: State<AppState>, chat_id: String, mode: TransportMode) -> Result<(), String> {
+    state.core.set_chat_transport(chat_id, mode).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 fn update_profile(state: State<AppState>, name: String, avatar: Option<String>) {
     state.core.update_profile(name, avatar)
 }
@@ -78,6 +88,16 @@ fn get_network_info(state: State<AppState>) -> neochat_core::NetworkStatus {
     state.core.get_network_status()
 }
 
+#[tauri::command]
+fn clear_database(state: State<AppState>) {
+    state.core.clear_database()
+}
+
+#[tauri::command]
+fn poll_messages(state: State<AppState>) -> Result<Vec<Message>, String> {
+    state.core.poll_messages().map_err(|e| e.to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // Initialize Core with a dummy path (storage logic in core is minimal/mocked for now)
@@ -85,6 +105,8 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_fs::init())
         .manage(AppState { core }) // Manage the state so commands can access it
         .invoke_handler(tauri::generate_handler![
             get_my_profile,
@@ -97,8 +119,12 @@ pub fn run() {
             get_contacts,
             search_users,
             add_contact,
+            add_contact_with_phone,
+            set_chat_transport,
             get_network_info,
-            update_profile
+            update_profile,
+            clear_database,
+            poll_messages
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

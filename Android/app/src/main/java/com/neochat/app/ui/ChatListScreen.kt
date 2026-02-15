@@ -16,19 +16,22 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.neochat.app.R
 import com.neochat.app.data.MockRepository
 import com.neochat.app.domain.Chat
+import com.neochat.app.domain.TransportMode
 import com.neochat.app.ui.theme.NeoBlack
 import com.neochat.app.ui.theme.NeoOnSurface
 import com.neochat.app.ui.theme.NeoOnSurfaceVariant
 import com.neochat.app.ui.theme.NeoPrimary
 import com.neochat.app.ui.theme.NeoSurface
-import kotlinx.coroutines.flow.collect
-import kotlinx.coroutines.launch
+import java.text.SimpleDateFormat
+import java.util.*
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -36,11 +39,9 @@ fun ChatListScreen(
     onChatClick: (String) -> Unit,
     onSettingsClick: () -> Unit
 ) {
-    val scope = rememberCoroutineScope()
     var chats by remember { mutableStateOf(emptyList<Chat>()) }
 
     LaunchedEffect(Unit) {
-        // Collect from MockRepository flow
         MockRepository.getChats().collect { list ->
             chats = list
         }
@@ -49,13 +50,13 @@ fun ChatListScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("NeoChat", color = NeoOnSurface) },
+                title = { Text(stringResource(R.string.app_name), color = NeoOnSurface, fontWeight = FontWeight.Bold) },
                 actions = {
                     IconButton(onClick = { /* Search */ }) {
-                        Icon(Icons.Default.Search, contentDescription = "Search", tint = NeoOnSurface)
+                        Icon(Icons.Default.Search, contentDescription = stringResource(R.string.common_search), tint = NeoOnSurface)
                     }
                     IconButton(onClick = onSettingsClick) {
-                        Icon(Icons.Default.Menu, contentDescription = "Menu", tint = NeoOnSurface)
+                        Icon(Icons.Default.Menu, contentDescription = stringResource(R.string.common_menu), tint = NeoOnSurface)
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = NeoBlack)
@@ -72,15 +73,49 @@ fun ChatListScreen(
         },
         containerColor = NeoBlack
     ) { paddingValues ->
-        LazyColumn(
-            modifier = Modifier
-                .padding(paddingValues)
-                .fillMaxSize()
-                .background(NeoBlack)
-        ) {
-            items(chats) { chat ->
-                ChatListItem(chat = chat, onClick = { onChatClick(chat.id) })
-                Divider(color = NeoSurface, thickness = 1.dp)
+        if (chats.isEmpty()) {
+            // Empty state
+            Box(
+                modifier = Modifier
+                    .padding(paddingValues)
+                    .fillMaxSize()
+                    .background(NeoBlack),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("🔐", fontSize = 48.sp)
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(
+                        stringResource(R.string.app_name),
+                        color = NeoOnSurface,
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        stringResource(R.string.chat_list_empty_title),
+                        color = NeoOnSurfaceVariant,
+                        fontSize = 14.sp
+                    )
+                    Spacer(modifier = Modifier.height(24.dp))
+                    Text(
+                        stringResource(R.string.chat_list_empty_desc),
+                        color = NeoPrimary,
+                        fontSize = 14.sp
+                    )
+                }
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier
+                    .padding(paddingValues)
+                    .fillMaxSize()
+                    .background(NeoBlack)
+            ) {
+                items(chats) { chat ->
+                    ChatListItem(chat = chat, onClick = { onChatClick(chat.id) })
+                    HorizontalDivider(color = NeoSurface, thickness = 1.dp)
+                }
             }
         }
     }
@@ -88,6 +123,8 @@ fun ChatListScreen(
 
 @Composable
 fun ChatListItem(chat: Chat, onClick: () -> Unit) {
+    val timeFormat = remember { SimpleDateFormat("HH:mm", Locale.getDefault()) }
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -95,7 +132,7 @@ fun ChatListItem(chat: Chat, onClick: () -> Unit) {
             .padding(16.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // Avatar Placeholder
+        // Avatar
         Box(
             modifier = Modifier
                 .size(48.dp)
@@ -110,48 +147,61 @@ fun ChatListItem(chat: Chat, onClick: () -> Unit) {
                 fontSize = 20.sp
             )
         }
-        
+
         Spacer(modifier = Modifier.width(16.dp))
-        
+
         Column(modifier = Modifier.weight(1f)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = chat.name,
-                    color = NeoOnSurface,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 16.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text(
+                        text = chat.name,
+                        color = NeoOnSurface,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 16.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    // Transport icon next to chat name
+                    if (chat.transport != TransportMode.INTERNET) {
+                        Text(
+                            text = chat.transport.icon,
+                            fontSize = 12.sp
+                        )
+                    }
+                }
+
                 chat.lastMessage?.let { msg ->
                     Text(
-                        text = "12:00", // Would format timestamp here
+                        text = timeFormat.format(Date(msg.timestamp)),
                         color = NeoOnSurfaceVariant,
                         fontSize = 12.sp
                     )
                 }
             }
-            
+
             Spacer(modifier = Modifier.height(4.dp))
-            
+
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = chat.lastMessage?.text ?: "No messages yet",
+                    text = chat.lastMessage?.text ?: stringResource(R.string.common_no_messages),
                     color = NeoOnSurfaceVariant,
                     fontSize = 14.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f)
                 )
-                
+
                 if (chat.unreadCount > 0) {
                     Box(
                         modifier = Modifier

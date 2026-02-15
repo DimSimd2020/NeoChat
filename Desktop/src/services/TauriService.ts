@@ -54,4 +54,12 @@ export class TauriService {
     static async updateProfile(name: string, avatar: string | null): Promise<void> {
         return await invoke<void>('update_profile', { name, avatar });
     }
+
+    static async clearDatabase(): Promise<void> {
+        return await invoke<void>('clear_database');
+    }
+
+    static async pollMessages(): Promise<Message[]> {
+        return await invoke<Message[]>('poll_messages');
+    }
 }

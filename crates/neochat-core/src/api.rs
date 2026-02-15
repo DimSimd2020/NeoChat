@@ -1,14 +1,15 @@
 use crate::models::{
     Chat, ChatLastMessage, ChatType, Contact, CoreError, Message, MessageStatus, NetworkStatus,
-    User, UserStatus,
+    TransportMode, User, UserStatus,
 };
+use crate::transport::relay::{RelayClient, RelayConfig, RelayEnvelope};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
 use aes_gcm::{
     aead::{Aead, AeadCore, KeyInit},
-    Aes256Gcm, Nonce // Or `Aes128Gcm`
+    Aes256Gcm, Nonce,
 };
 use base32::Alphabet;
 use rand::{rngs::OsRng, RngCore};
@@ -16,7 +17,7 @@ use std::fs;
 use std::path::Path;
 use serde::{Deserialize, Serialize};
 
-// Internal struct to serialize everything at once
+/// Internal struct to serialize all app state at once
 #[derive(Serialize, Deserialize)]
 struct StorageData {
     user: User,
@@ -27,14 +28,15 @@ struct StorageData {
 
 #[derive(uniffi::Object)]
 pub struct NeoChatCore {
-    // Internal state (mock for now)
     chats: Mutex<HashMap<String, Chat>>,
-    messages: Mutex<HashMap<String, Vec<Message>>>, // chat_id -> messages
-    contacts: Mutex<HashMap<String, Contact>>,      // user_id -> Contact
+    messages: Mutex<HashMap<String, Vec<Message>>>,
+    contacts: Mutex<HashMap<String, Contact>>,
     my_profile: Mutex<User>,
     network_status: Mutex<NetworkStatus>,
-    storage_path: String,
-    encryption_key: [u8; 32],
+    pub storage_path: String,
+    pub encryption_key: [u8; 32],
+    // Relay client for network operations (not serialized)
+    relay: RelayClient,
 }
 
 #[uniffi::export]
@@ -43,10 +45,12 @@ impl NeoChatCore {
     pub fn new(storage_path_str: String) -> Result<Arc<Self>, CoreError> {
         // Ensure storage directory exists
         if let Some(parent) = Path::new(&storage_path_str).parent() {
-            fs::create_dir_all(parent).map_err(|e| CoreError::Internal(e.to_string()))?;
+            if !parent.as_os_str().is_empty() {
+                fs::create_dir_all(parent).map_err(|e| CoreError::Internal(e.to_string()))?;
+            }
         }
 
-        // Load or generate key
+        // Load or generate encryption key
         let key_path = format!("{}.key", storage_path_str);
         let key = if Path::new(&key_path).exists() {
             fs::read(&key_path)
@@ -61,7 +65,9 @@ impl NeoChatCore {
             key
         };
 
-        // Try to load data
+        let relay_client = RelayClient::new(RelayConfig::default());
+
+        // Try to load existing data from disk
         if Path::new(&storage_path_str).exists() {
             if let Ok(loaded) = Self::load_from_disk(&storage_path_str, &key) {
                 return Ok(Arc::new(Self {
@@ -72,14 +78,13 @@ impl NeoChatCore {
                     network_status: Mutex::new(NetworkStatus::Disconnected),
                     storage_path: storage_path_str,
                     encryption_key: key,
+                    relay: relay_client,
                 }));
             }
         }
 
-        // Initialize with default (unregistered) profile
-        // Generate a random ID that looks like a public key (UUID for now)
+        // Fresh profile — no mock data
         let id = Uuid::new_v4().to_string();
-        
         let my_profile = User {
             id,
             username: "New User".to_string(),
@@ -89,23 +94,20 @@ impl NeoChatCore {
             is_registered: false,
         };
 
-        let chats = HashMap::new();
-        let messages = HashMap::new();
-        let contacts = HashMap::new();
-
         Ok(Arc::new(Self {
-            chats: Mutex::new(chats),
-            messages: Mutex::new(messages),
-            contacts: Mutex::new(contacts),
+            chats: Mutex::new(HashMap::new()),
+            messages: Mutex::new(HashMap::new()),
+            contacts: Mutex::new(HashMap::new()),
             my_profile: Mutex::new(my_profile),
             network_status: Mutex::new(NetworkStatus::Disconnected),
             storage_path: storage_path_str,
             encryption_key: key,
+            relay: relay_client,
         }))
     }
 }
 
-// Private implementation block for internal methods
+// Private methods
 impl NeoChatCore {
     fn save_to_disk(&self) -> Result<(), CoreError> {
         let data = StorageData {
@@ -118,20 +120,16 @@ impl NeoChatCore {
         let json_bytes = serde_json::to_vec(&data)
             .map_err(|e| CoreError::Internal(format!("Serialization error: {}", e)))?;
 
-        // Encrypt: Json Bytes -> Encrypted Bytes
         let cipher = Aes256Gcm::new(&self.encryption_key.into());
-        let nonce = Aes256Gcm::generate_nonce(&mut OsRng); // 96-bits; unique per message
+        let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
         let ciphertext = cipher.encrypt(&nonce, json_bytes.as_ref())
              .map_err(|e| CoreError::Internal(format!("Encryption error: {}", e)))?;
         
-        // Combine nonce + ciphertext
         let mut encrypted_payload = nonce.to_vec();
         encrypted_payload.extend_from_slice(&ciphertext);
 
-        // Base32 Encode
         let base32_str = base32::encode(Alphabet::RFC4648 { padding: true }, &encrypted_payload);
 
-        // Write as binary (bytes of the base32 string)
         fs::write(&self.storage_path, base32_str.as_bytes())
              .map_err(|e| CoreError::Internal(format!("File write error: {}", e)))?;
 
@@ -164,10 +162,16 @@ impl NeoChatCore {
         
         Ok(data)
     }
+
+    fn now_ts() -> u64 {
+        SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs()
+    }
 }
 
+// Public API
 #[uniffi::export]
 impl NeoChatCore {
+    // === Profile ===
     pub fn register(&self, username: String) -> Result<User, CoreError> {
         if username.trim().is_empty() {
             return Err(CoreError::InvalidArgument("Username cannot be empty".into()));
@@ -176,14 +180,18 @@ impl NeoChatCore {
             let mut profile = self.my_profile.lock().unwrap();
             profile.username = username;
             profile.status = UserStatus::Online;
-            profile.last_seen = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_secs();
+            profile.last_seen = Self::now_ts();
             profile.is_registered = true;
         }
+        
+        let profile = self.my_profile.lock().unwrap().clone();
+        // Sync with relay
+        if let Err(e) = self.relay.update_profile(&profile) {
+             println!("Warning: Failed to sync profile with relay: {}", e);
+        }
+
         self.save_to_disk()?;
-        Ok(self.my_profile.lock().unwrap().clone())
+        Ok(profile)
     }
 
     pub fn get_my_profile(&self) -> User {
@@ -196,9 +204,38 @@ impl NeoChatCore {
             profile.username = name;
             profile.avatar_url = avatar;
         }
+        let profile = self.my_profile.lock().unwrap().clone();
+        if let Err(e) = self.relay.update_profile(&profile) {
+             println!("Warning: Failed to sync profile with relay: {}", e);
+        }
         let _ = self.save_to_disk();
     }
 
+    pub fn clear_database(&self) {
+        {
+            let mut chats = self.chats.lock().unwrap();
+            chats.clear();
+        }
+        {
+            let mut messages = self.messages.lock().unwrap();
+            messages.clear();
+        }
+        {
+            let mut contacts = self.contacts.lock().unwrap();
+            contacts.clear();
+        }
+        {
+            let mut profile = self.my_profile.lock().unwrap();
+            profile.username = "New User".to_string();
+            profile.status = UserStatus::Offline;
+            profile.last_seen = 0;
+            profile.avatar_url = None;
+            profile.is_registered = false;
+        }
+        let _ = self.save_to_disk();
+    }
+
+    // === Chats ===
     pub fn get_chats(&self) -> Vec<Chat> {
         let chats = self.chats.lock().unwrap();
         chats.values().cloned().collect()
@@ -206,7 +243,7 @@ impl NeoChatCore {
 
     pub fn create_chat(&self, participant_pubkey: String) -> Result<Chat, CoreError> {
         let mut chats = self.chats.lock().unwrap();
-        // Check if chat already exists
+        // Check if chat with this participant already exists
         for chat in chats.values() {
             if chat.chat_type == ChatType::Private
                 && chat.participants.contains(&participant_pubkey)
@@ -215,38 +252,62 @@ impl NeoChatCore {
             }
         }
 
-        let id = Uuid::new_v4().to_string();
-        // Try to find name in contacts
+        // Check local contacts first
         let contacts = self.contacts.lock().unwrap();
-        let name = contacts
-            .get(&participant_pubkey)
-            .map(|c| c.name.clone())
-            .unwrap_or_else(|| format!("User {}", &participant_pubkey[..8]));
+        let candidate = contacts.get(&participant_pubkey).cloned();
+        drop(contacts); // Release lock before network call
 
+        let (name, avatar, status) = if let Some(contact) = candidate {
+            (contact.name, contact.avatar_url, contact.status)
+        } else {
+            // Try fetch from network
+            match self.relay.get_profile(&participant_pubkey) {
+                 Ok(user) => (user.username, user.avatar_url, user.status),
+                 Err(_) => {
+                     // If user is not found, we Return Error instead of creating fake chat
+                     return Err(CoreError::InvalidArgument("User not found on network".into()));
+                 }
+            }
+        };
+
+        let id = Uuid::new_v4().to_string();
         let my_id = self.my_profile.lock().unwrap().id.clone();
 
         let chat = Chat {
             id: id.clone(),
-            chat_type: ChatType::Private, 
-            name,
-            avatar_url: None,
+            chat_type: ChatType::Private,
+            name: name.clone(),
+            avatar_url: avatar.clone(),
             unread_count: 0,
             last_message: None,
-            participants: vec![my_id, participant_pubkey],
+            participants: vec![my_id, participant_pubkey.clone()],
+            transport: TransportMode::Internet,
         };
         chats.insert(id.clone(), chat.clone());
-        drop(chats); // unlock before save
+        
+        // Add to contacts if not exists
+        let mut contacts = self.contacts.lock().unwrap();
+        if !contacts.contains_key(&participant_pubkey) {
+            contacts.insert(participant_pubkey.clone(), Contact {
+                id: participant_pubkey,
+                name,
+                avatar_url: avatar,
+                status,
+                phone_number: None,
+            });
+        }
+        
+        drop(chats);
         drop(contacts);
         
         self.save_to_disk()?;
-        
         Ok(chat)
     }
 
     pub fn create_group(&self, name: String, participants: Vec<String>) -> Result<Chat, CoreError> {
         let mut chats = self.chats.lock().unwrap();
         let id = Uuid::new_v4().to_string();
-        let mut all_participants = participants.clone();
+        let mut all_participants = participants;
         let my_id = self.my_profile.lock().unwrap().id.clone();
         all_participants.push(my_id);
 
@@ -258,6 +319,7 @@ impl NeoChatCore {
             unread_count: 0,
             last_message: None,
             participants: all_participants,
+            transport: TransportMode::Internet,
         };
         chats.insert(id.clone(), chat.clone());
         drop(chats);
@@ -266,16 +328,34 @@ impl NeoChatCore {
     }
 
     pub fn delete_chat(&self, chat_id: String) {
-        let mut chats = self.chats.lock().unwrap();
-        chats.remove(&chat_id);
-        drop(chats);
+        {
+            let mut chats = self.chats.lock().unwrap();
+            chats.remove(&chat_id);
+        }
+        {
+            let mut messages = self.messages.lock().unwrap();
+            messages.remove(&chat_id);
+        }
         let _ = self.save_to_disk();
     }
 
+    /// Switch transport mode for a chat (Internet <-> SMS)
+    pub fn set_chat_transport(&self, chat_id: String, mode: TransportMode) -> Result<(), CoreError> {
+        let mut chats = self.chats.lock().unwrap();
+        if let Some(chat) = chats.get_mut(&chat_id) {
+            chat.transport = mode;
+            drop(chats);
+            self.save_to_disk()?;
+            Ok(())
+        } else {
+            Err(CoreError::Internal("Chat not found".into()))
+        }
+    }
+
+    // === Messages ===
     pub fn get_messages(&self, chat_id: String, limit: u32, offset: u32) -> Vec<Message> {
         let messages_map = self.messages.lock().unwrap();
         if let Some(msgs) = messages_map.get(&chat_id) {
-            // Simple pagination (mock)
             let start = offset as usize;
             let end = (offset + limit) as usize;
             if start < msgs.len() {
@@ -289,40 +369,148 @@ impl NeoChatCore {
     }
 
     pub fn send_message(&self, chat_id: String, text: String) -> Result<Message, CoreError> {
-        let mut messages_map = self.messages.lock().unwrap();
-        let msgs = messages_map.entry(chat_id.clone()).or_insert(Vec::new());
+        if text.trim().is_empty() {
+            return Err(CoreError::Internal("Empty message".into()));
+        }
+
+        // Get chat participants and transport
+        let (participants, transport, _chat_type) = {
+            let chats = self.chats.lock().unwrap();
+            match chats.get(&chat_id) {
+                Some(chat) => (chat.participants.clone(), chat.transport.clone(), chat.chat_type.clone()),
+                None => return Err(CoreError::Internal("Chat not found".into())),
+            }
+        };
 
         let my_id = self.my_profile.lock().unwrap().id.clone();
+        let msg_id = Uuid::new_v4().to_string();
+        let timestamp = Self::now_ts();
 
         let msg = Message {
-            id: Uuid::new_v4().to_string(),
+            id: msg_id.clone(),
             chat_id: chat_id.clone(),
-            sender_id: my_id,
+            sender_id: my_id.clone(),
             text: text.clone(),
-            timestamp: SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_secs(),
+            timestamp,
             status: MessageStatus::Sent,
             attachments: vec![],
+            transport: transport.clone(),
         };
-        msgs.push(msg.clone());
 
-        // Update last message in chat
-        let mut chats = self.chats.lock().unwrap();
-        if let Some(chat) = chats.get_mut(&chat_id) {
-            chat.last_message = Some(ChatLastMessage {
-                text,
-                timestamp: msg.timestamp,
-                sender_id: msg.sender_id.clone(),
-            });
+        // Send to network
+        if transport == TransportMode::Internet {
+             for p in participants {
+                 if p == my_id { continue; }
+                 
+                 // TODO: Encrypt payload properly
+                 let envelope = RelayEnvelope {
+                     from: my_id.clone(),
+                     to: p.clone(),
+                     payload: text.clone(), // Sending cleartext for now as E2E setup is complex without PKI
+                     message_id: msg_id.clone(),
+                     timestamp,
+                 };
+                 
+                 if let Err(e) = self.relay.send(&envelope) {
+                     println!("Failed to send to {}: {}", p, e);
+                     // We still save the message locally but maybe mark as failed?
+                     // returning error would stop local save
+                 }
+             }
+        }
+
+        {
+            let mut messages_map = self.messages.lock().unwrap();
+            let msgs = messages_map.entry(chat_id.clone()).or_default();
+            msgs.push(msg.clone());
+        }
+
+        {
+            let mut chats = self.chats.lock().unwrap();
+            if let Some(chat) = chats.get_mut(&chat_id) {
+                chat.last_message = Some(ChatLastMessage {
+                    text,
+                    timestamp: msg.timestamp,
+                    sender_id: msg.sender_id.clone(),
+                });
+            }
+        }
+        self.save_to_disk()?;
+        Ok(msg)
+    }
+
+    pub fn poll_messages(&self) -> Result<Vec<Message>, CoreError> {
+        let my_id = self.my_profile.lock().unwrap().id.clone();
+        
+        let envelopes = self.relay.poll(&my_id)
+            .map_err(|e| CoreError::Internal(format!("Poll error: {}", e)))?;
+
+        let mut new_messages = Vec::new();
+        
+        for env in envelopes {
+            // Find or create chat for sender
+            // Note: In real app we should check signature
+            
+            // Check if chat exists
+            let sender_id = env.from.clone();
+            
+            // We need to find which chat this belongs to. 
+            // In private chat, participants = [me, sender]
+            let mut chat_id = String::new();
+            
+            {
+                let chats = self.chats.lock().unwrap();
+                for c in chats.values() {
+                     if c.chat_type == ChatType::Private && c.participants.contains(&sender_id) {
+                         chat_id = c.id.clone();
+                         break;
+                     }
+                }
+            }
+            
+            if chat_id.is_empty() {
+                // New chat from unknown user? 
+                // We should fetch profile first
+                 drop(self.chats.lock().unwrap()); // Ensure not locked
+                 match self.create_chat(sender_id.clone()) {
+                     Ok(chat) => chat_id = chat.id,
+                     Err(e) => {
+                         println!("Failed to create chat for incoming msg: {}", e);
+                         continue;
+                     }
+                 }
+            }
+            
+            let msg = Message {
+                id: env.message_id.clone(),
+                chat_id: chat_id.clone(),
+                sender_id: sender_id.clone(),
+                text: env.payload.clone(),
+                timestamp: env.timestamp,
+                status: MessageStatus::Read, // or Received
+                attachments: vec![],
+                transport: TransportMode::Internet,
+            };
+            
+            {
+                let mut messages_map = self.messages.lock().unwrap();
+                let msgs = messages_map.entry(chat_id.clone()).or_default();
+                // Dedup
+                if !msgs.iter().any(|m| m.id == msg.id) {
+                    msgs.push(msg.clone());
+                    new_messages.push(msg.clone());
+                }
+            }
+            
+             // Ack message
+             let _ = self.relay.ack(&my_id, &env.message_id);
         }
         
-        drop(messages_map);
-        drop(chats);
-        self.save_to_disk()?;
-
-        Ok(msg)
+        if !new_messages.is_empty() {
+             self.save_to_disk()?;
+        }
+        
+        Ok(new_messages)
     }
 
     pub fn mark_as_read(&self, chat_id: String, message_ids: Vec<String>) {
@@ -339,68 +527,61 @@ impl NeoChatCore {
         let _ = self.save_to_disk();
     }
 
-    // Contacts
+    // === Contacts ===
     pub fn get_contacts(&self) -> Vec<Contact> {
-        let contacts = self.contacts.lock().unwrap();
-        contacts.values().cloned().collect()
+        self.contacts.lock().unwrap().values().cloned().collect()
     }
 
     pub fn add_contact(&self, pubkey: String, name: String) {
         {
             let mut contacts = self.contacts.lock().unwrap();
-            contacts.insert(
-                pubkey.clone(),
-                Contact {
-                    id: pubkey,
-                    name,
-                    avatar_url: None,
-                    status: UserStatus::Offline,
-                },
-            );
+            contacts.insert(pubkey.clone(), Contact {
+                id: pubkey,
+                name,
+                avatar_url: None,
+                status: UserStatus::Offline,
+                phone_number: None,
+            });
+        }
+        let _ = self.save_to_disk();
+    }
+
+    /// Add contact with phone number (for SMS fallback)
+    pub fn add_contact_with_phone(&self, pubkey: String, name: String, phone: String) {
+        {
+            let mut contacts = self.contacts.lock().unwrap();
+            contacts.insert(pubkey.clone(), Contact {
+                id: pubkey,
+                name,
+                avatar_url: None,
+                status: UserStatus::Offline,
+                phone_number: Some(phone),
+            });
         }
         let _ = self.save_to_disk();
     }
 
     pub fn search_users(&self, query: String) -> Vec<Contact> {
         let contacts = self.contacts.lock().unwrap();
-        let mut results: Vec<Contact> = contacts
+        contacts
             .values()
-            .filter(|c| c.name.to_lowercase().contains(&query.to_lowercase()))
+            .filter(|c| {
+                c.name.to_lowercase().contains(&query.to_lowercase())
+                    || c.id.to_lowercase().contains(&query.to_lowercase())
+            })
             .cloned()
-            .collect();
-
-        // Simulate global network search
-        // If query looks like a key/ID, mock a found user
-        if query.len() > 8 && !results.iter().any(|c| c.id == query) {
-             results.push(Contact {
-                id: query.clone(),
-                name: format!("User {}", &query[..4]),
-                avatar_url: None,
-                status: UserStatus::Online,
-            });
-        }
-
-        // Keep Bob for testing
-        if "bob".contains(&query.to_lowercase()) && !results.iter().any(|c| c.name == "Bob") {
-            results.push(Contact {
-                id: Uuid::new_v4().to_string(),
-                name: "Bob".to_string(),
-                avatar_url: None,
-                status: UserStatus::Online,
-            });
-        }
-        results
+            .collect()
     }
 
-    pub fn connect_peer(&self, address: String) {
-        // Mock connection
-        println!("Connecting to peer: {}", address);
+    // === Network ===
+    pub fn connect_peer(&self, _address: String) {
         let mut status = self.network_status.lock().unwrap();
+        *status = NetworkStatus::Connecting;
+        // TODO: real P2P connection via libp2p/QUIC
         *status = NetworkStatus::Connected;
     }
 
     pub fn get_network_status(&self) -> NetworkStatus {
-        let status = self.network_status.lock().unwrap();
-        status.clone()
+        self.network_status.lock().unwrap().clone()
     }
 }

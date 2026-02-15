@@ -1,0 +1,9 @@
+target/
+node_modules/
+.idea/
+.vscode/
+*.db
+*.key
+dist/
+build/
+.DS_Store

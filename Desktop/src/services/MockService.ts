@@ -1,92 +1,26 @@
 import { Chat, Message, NetworkStatus, User } from '../types';
 
+/**
+ * MockService — used only for dev/testing without Tauri backend.
+ * No fake contacts/chats. Clean state.
+ */
 export class MockService {
-    private static readonly DELAY_MS = 300; // Simulate network latency
+    private static readonly DELAY_MS = 300;
 
     private static readonly MY_PROFILE: User = {
         id: "my_local_pubkey_12345",
         username: "Me",
         status: "online",
-        last_seen: 1678886400,
+        last_seen: Math.floor(Date.now() / 1000),
         is_registered: true
     };
 
-    private static readonly CONTACT_ALICE: User = {
-        id: "remote_pubkey_67890",
-        username: "Alice",
-        status: "online",
-        last_seen: 1678886400,
-        is_registered: true
-    };
-
-    private static readonly CHATS: Chat[] = [
-        {
-            id: "chat_1",
-            name: "Alice",
-            chat_type: "private",
-            unread_count: 1,
-            last_message: {
-                text: "Hi there!",
-                timestamp: 1678886405,
-                sender_id: "remote_pubkey_67890",
-            },
-            participants: ["remote_pubkey_67890"],
-        },
-        {
-            id: "chat_2",
-            name: "Local Test Group",
-            chat_type: "group",
-            unread_count: 0,
-            last_message: {
-                text: "Welcome to NeoChat!",
-                timestamp: 1678880000,
-                sender_id: "my_local_pubkey_12345"
-            },
-            participants: ["my_local_pubkey_12345", "remote_pubkey_67890"]
-        }
-    ];
-
-    private static readonly MESSAGES: Record<string, Message[]> = {
-        "chat_1": [
-            {
-                id: "msg_0",
-                chat_id: "chat_1",
-                sender_id: "my_local_pubkey_12345",
-                text: "Hello, Alice! (Contact ID: " + "remote_pubkey_67890" + ")", // Just to use the string if needed, or better:
-                timestamp: 1678886300,
-                status: "read",
-            },
-            {
-                id: "msg_1",
-                chat_id: "chat_1",
-                sender_id: "remote_pubkey_67890",
-                text: "Hi there!",
-                timestamp: 1678886405,
-                status: "read",
-            },
-        ],
-        "chat_2": [
-            {
-                id: "msg_sys_1",
-                chat_id: "chat_2",
-                sender_id: "my_local_pubkey_12345",
-                text: "Welcome to NeoChat!",
-                timestamp: 1678880000,
-                status: "read",
-            }
-        ]
-    };
-
-    // --- API ---
+    private static CHATS: Chat[] = [];
+    private static MESSAGES: Record<string, Message[]> = {};
 
     static async getMyProfile(): Promise<User> {
         await this.delay();
         return this.MY_PROFILE;
-    }
-
-    // Expose for testing if needed, or remove unused warning by using it:
-    static getAliceProfile(): User {
-        return this.CONTACT_ALICE;
     }
 
     static async getChats(): Promise<Chat[]> {
@@ -106,15 +40,15 @@ export class MockService {
             chat_id: chatId,
             sender_id: this.MY_PROFILE.id,
             text,
-            timestamp: Date.now() / 1000,
+            timestamp: Math.floor(Date.now() / 1000),
             status: "sending",
+            transport: "internet",
         };
 
         if (!this.MESSAGES[chatId]) {
             this.MESSAGES[chatId] = [];
         }
         this.MESSAGES[chatId].push(newMessage);
-
         return newMessage;
     }
 
@@ -122,15 +56,11 @@ export class MockService {
         await this.delay();
         const newChat: Chat = {
             id: `chat_${Date.now()}`,
-            name: `New Chat ${participantPubkey.slice(0, 5)}`,
+            name: `User ${participantPubkey.slice(0, 8)}`,
             chat_type: "private",
             unread_count: 0,
             participants: [this.MY_PROFILE.id, participantPubkey],
-            last_message: {
-                text: "Chat created",
-                timestamp: Date.now() / 1000,
-                sender_id: this.MY_PROFILE.id
-            }
+            transport: "internet",
         };
         this.CHATS.push(newChat);
         this.MESSAGES[newChat.id] = [];
